@@ -22,6 +22,13 @@ class KaraokeTakeCoordinator: ObservableObject {
     init(sessionManager: AudioSessionManager = .shared) {
         self.sessionManager = sessionManager
         setupObservers()
+
+        recorderVM.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        playbackVM.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &cancellables)
     }
 
     var canStartTake: Bool {

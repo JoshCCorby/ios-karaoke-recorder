@@ -25,7 +25,7 @@ class AudioSessionManager: ObservableObject {
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
-                options: [.defaultToSpeaker, .allowBluetooth, .allowAirPlay]
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
             )
             try session.setActive(true)
             isAudioSessionActive = true
@@ -37,7 +37,9 @@ class AudioSessionManager: ObservableObject {
 
     func reactivateSession() throws {
         try AVAudioSession.sharedInstance().setActive(true)
-        isAudioSessionActive = true
+        DispatchQueue.main.async {
+            self.isAudioSessionActive = true
+        }
     }
 
     private func setupNotifications() {
@@ -64,8 +66,10 @@ class AudioSessionManager: ObservableObject {
 
         switch type {
         case .began:
-            isAudioSessionActive = false
-            interruptionPhase = .began
+            DispatchQueue.main.async {
+                self.isAudioSessionActive = false
+                self.interruptionPhase = .began
+            }
         case .ended:
             var shouldResume = false
             if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
@@ -79,7 +83,9 @@ class AudioSessionManager: ObservableObject {
                     print("Failed to reactivate session after interruption: \(error)")
                 }
             }
-            interruptionPhase = .ended(shouldResume: shouldResume)
+            DispatchQueue.main.async {
+                self.interruptionPhase = .ended(shouldResume: shouldResume)
+            }
         @unknown default:
             break
         }
@@ -92,7 +98,9 @@ class AudioSessionManager: ObservableObject {
             return
         }
 
-        routeChangeReason = reason
+        DispatchQueue.main.async {
+            self.routeChangeReason = reason
+        }
     }
 
     func duplicateAudioToSpeaker() {

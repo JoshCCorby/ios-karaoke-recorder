@@ -21,6 +21,24 @@ class RecorderViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func refreshMicPermissionStatus() {
+        if #available(iOS 17.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted:
+                micPermissionGranted = true
+                micPermissionDenied = false
+            case .denied:
+                micPermissionGranted = false
+                micPermissionDenied = true
+            case .undetermined:
+                micPermissionGranted = false
+                micPermissionDenied = false
+            @unknown default:
+                micPermissionGranted = false
+                micPermissionDenied = false
+            }
+            return
+        }
+
         switch AVAudioSession.sharedInstance().recordPermission {
         case .granted:
             micPermissionGranted = true
@@ -49,7 +67,7 @@ class RecorderViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return
         }
 
-        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+        let handleResponse: (Bool) -> Void = { [weak self] granted in
             DispatchQueue.main.async {
                 self?.refreshMicPermissionStatus()
                 if !granted {
@@ -57,6 +75,15 @@ class RecorderViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 }
                 completion(granted)
             }
+        }
+
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission(completionHandler: handleResponse)
+            return
+        }
+
+        AVAudioSession.sharedInstance().requestRecordPermission { granted in
+            handleResponse(granted)
         }
     }
 

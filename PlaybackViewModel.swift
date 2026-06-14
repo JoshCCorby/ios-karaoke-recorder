@@ -13,6 +13,8 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     var backingTrackPlayer: AVAudioPlayer?
     var recordingPlayer: AVAudioPlayer?
 
+    private var backingTrackURL: URL?
+
     private var timer: Timer?
 
     func importBackingTrack(from sourceURL: URL) throws {
@@ -32,16 +34,22 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         try fileManager.copyItem(at: sourceURL, to: destination)
 
+        let previousURL = backingTrackURL
         loadBackingTrack(url: destination, displayName: sourceURL.lastPathComponent)
+
+        if let previousURL, previousURL != destination {
+            try? fileManager.removeItem(at: previousURL)
+        }
     }
 
-    func loadBackingTrack(url: URL, displayName: String? = nil) {
+    private func loadBackingTrack(url: URL, displayName: String? = nil) {
         do {
             backingTrackPlayer = try AVAudioPlayer(contentsOf: url)
             backingTrackPlayer?.delegate = self
             backingTrackPlayer?.prepareToPlay()
             duration = backingTrackPlayer?.duration ?? 0
             backingTrackName = displayName ?? url.lastPathComponent
+            backingTrackURL = url
             isBackingTrackPaused = false
             lastError = nil
         } catch {
