@@ -3,106 +3,173 @@ import AVFoundation
 
 class RecorderViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isRecording = false
+    @Published var isPaused = false
     @Published var recordingTime: TimeInterval = 0
     @Published var audioLevel: Float = 0.0
-    
+    @Published var recordings: [URL] = []
+    @Published var micPermissionGranted = false
+    @Published var micPermissionDenied = false
+    @Published var lastError: String?
+
     private var audioRecorder: AVAudioRecorder?
     private var timer: Timer?
-    
-    // Path where recordings are saved
     private var recordingURL: URL?
-    
+
     override init() {
         super.init()
+        refreshMicPermissionStatus()
     }
-    
-    func startRecording() {
-        // Ensure session is active
-        // In a real app, you might want to coordinate this better with AudioSessionManager
-        // but for now we assume AudioSessionManager has set up the shared session.
-        
+
+    func refreshMicPermissionStatus() {
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted:
+            micPermissionGranted = true
+            micPermissionDenied = false
+        case .denied:
+            micPermissionGranted = false
+            micPermissionDenied = true
+        case .undetermined:
+            micPermissionGranted = false
+            micPermissionDenied = false
+        @unknown default:
+            micPermissionGranted = false
+            micPermissionDenied = false
+        }
+    }
+
+    func requestMicPermission(completion: @escaping (Bool) -> Void) {
+        refreshMicPermissionStatus()
+        if micPermissionGranted {
+            completion(true)
+            return
+        }
+        if micPermissionDenied {
+            lastError = "Microphone access was denied. Enable it in Settings to record."
+            completion(false)
+            return
+        }
+
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+            DispatchQueue.main.async {
+                self?.refreshMicPermissionStatus()
+                if !granted {
+                    self?.lastError = "Microphone access is required to record your vocal take."
+                }
+                completion(granted)
+            }
+        }
+    }
+
+    @discardableResult
+    func startRecording() -> Bool {
+        lastError = nil
+
         let fileName = "recording-\(Date().timeIntervalSince1970).m4a"
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         let fileURL = paths[0].appendingPathComponent(fileName)
-        self.recordingURL = fileURL
-        
+        recordingURL = fileURL
+
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: 44100.0,
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
-        
+
         do {
             audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
             audioRecorder?.delegate = self
             audioRecorder?.isMeteringEnabled = true
-            
-            if audioRecorder?.record() == true {
-                isRecording = true
-                startTimer()
-                print("Recording started: \(fileURL)")
-            } else {
-                print("Failed to start recording")
+
+            guard audioRecorder?.record() == true else {
+                lastError = "Could not start recording. Check microphone access and try again."
+                return false
             }
+
+            isRecording = true
+            isPaused = false
+            startTimer()
+            return true
         } catch {
-            print("Error setting up recorder: \(error)")
+            lastError = "Error setting up recorder: \(error.localizedDescription)"
+            return false
         }
     }
-    
-    func stopRecording() {
-        audioRecorder?.stop()
+
+    func pauseRecording() {
+        guard isRecording, !isPaused else { return }
+        audioRecorder?.pause()
+        isPaused = true
         isRecording = false
         stopTimer()
         audioLevel = 0.0
-        print("Recording stopped")
+    }
+
+    func resumeRecording() -> Bool {
+        guard let recorder = audioRecorder, isPaused else { return false }
+        guard recorder.record() else {
+            lastError = "Could not resume recording."
+            return false
+        }
+        isPaused = false
+        isRecording = true
+        startTimer()
+        return true
+    }
+
+    func stopRecording() {
+        audioRecorder?.stop()
+        isRecording = false
+        isPaused = false
+        stopTimer()
+        audioLevel = 0.0
         fetchRecordings()
     }
-    
-    // MARK: - File Management
-    @Published var recordings: [URL] = []
-    
+
     func fetchRecordings() {
         let fileManager = FileManager.default
         let documentDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let directoryContents = try? fileManager.contentsOfDirectory(at: documentDirectory, includingPropertiesForKeys: nil)
-        
-        if let contents = directoryContents {
-            recordings = contents.filter { $0.pathExtension == "m4a" }
-            recordings.sort(by: { $0.lastPathComponent > $1.lastPathComponent }) // Sort by name (roughly date)
-        }
+        let directoryContents = try? fileManager.contentsOfDirectory(
+            at: documentDirectory,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        guard let contents = directoryContents else { return }
+
+        recordings = contents
+            .filter { $0.pathExtension == "m4a" }
+            .sorted { lhs, rhs in
+                let lhsDate = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let rhsDate = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                return lhsDate > rhsDate
+            }
     }
-    
-    // MARK: - Timer & Metering
-    
+
     private func startTimer() {
         recordingTime = 0
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            self.recordingTime += 0.1
+            self.recordingTime = self.audioRecorder?.currentTime ?? self.recordingTime
             self.updateMeters()
         }
     }
-    
+
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
     }
-    
+
     private func updateMeters() {
         audioRecorder?.updateMeters()
-        // Initialize with a low value
         let power = audioRecorder?.averagePower(forChannel: 0) ?? -160
-        // Normalize to 0-1 range for UI (assuming -60dB floor)
         let normalized = max(0, (power + 60) / 60)
-        self.audioLevel = normalized
+        audioLevel = normalized
     }
-    
-    // MARK: - AVAudioRecorderDelegate
-    
+
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         if !flag {
-            print("Recording finished unsuccessfully")
+            lastError = "Recording finished unsuccessfully."
         }
     }
 }

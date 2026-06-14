@@ -1,72 +1,68 @@
 # iOS Karaoke Recorder
 
-A minimal, **correct** reference implementation for simultaneous audio playback and recording on iOS using `AVAudioEngine`.
+A minimal reference implementation for simultaneous audio playback and recording on iOS using `AVAudioRecorder`, `AVAudioPlayer`, and a shared `AVAudioSession`.
 
-Build vocal practice and karaoke apps with confidence — no hacks, no workarounds, no lies.
+Build vocal practice apps with confidence — explicit about iOS constraints, no fake sync guarantees.
 
 ---
 
 ## What This Does
 
-✅ Plays a **local backing track** (MP3, WAV, etc.)  
-✅ Records **microphone input in real time**  
-✅ Handles both simultaneously with a single, stable audio engine  
-✅ Survives interruptions (calls, Siri, route changes)  
-✅ Stores recordings locally with predictable file naming  
-✅ Plays back recorded takes immediately  
+- Plays a **local backing track** (MP3, WAV, etc.)
+- Records **microphone input in real time**
+- Coordinates both through a single **take owner** (`KaraokeTakeCoordinator`)
+- Requests microphone permission with a proper usage string
+- Handles interruptions (calls, Siri) and headphone unplug pauses
+- Copies imported tracks into the app sandbox for reliable playback
+- Stores recordings locally with predictable file naming
+- Plays back recorded takes immediately (solo — backing track stops first)
 
 ---
 
 ## What This Doesn't Do
 
-❌ Record system audio (iOS forbids this)  
-❌ Integrate with YouTube, Spotify, or Apple Music  
-❌ Enable background recording  
-❌ Apply effects, pitch correction, or mixing  
-❌ Provide workarounds for OS restrictions  
+- Record system audio (iOS forbids this)
+- Integrate with YouTube, Spotify, or Apple Music
+- Enable background recording
+- Apply effects, pitch correction, or mixing
+- Provide sample-accurate sync between backing track and vocal take
+- Mix a saved take over the backing track during review
 
 **Why?** iOS audio is sandboxed by design. This project respects those boundaries rather than fight them.
 
 ---
 
-## Why This Exists
-
-iOS audio examples tend to be either **too simple to be useful** or **complex and quietly broken**.
-
-This repo is a **reference implementation** that aims for:
-
-- ✔️ Minimal, focused scope
-- ✔️ Explicit, documented constraints  
-- ✔️ Correct, stable behaviour
-- ✔️ Readable, hackable code
-- ✔️ Zero third-party audio libraries
-
-If you're building an iOS audio app, this should save you hours of debugging.
-
----
-
 ## Core Architecture
 
-### Audio Engine Setup
+On iOS, audio is **borrowed, not owned**. `AVAudioSession` is the negotiation layer between your app and the OS over shared hardware.
 
-- **One `AVAudioEngine`** for both playback and recording
-- **One `AVAudioSession`** configured for `.playAndRecord`
-- **Shared clock** — mic and speaker stay in sync
-- **Input and output nodes** wired to the main mixer
+```mermaid
+flowchart LR
+    OS[AVAudioSession] --> SessionMgr[AudioSessionManager]
+    SessionMgr --> Coordinator[KaraokeTakeCoordinator]
+    Coordinator --> Recorder[RecorderViewModel]
+    Coordinator --> Playback[PlaybackViewModel]
+    UI[ContentView] --> Coordinator
+```
 
-### Recording
+### Components
 
-- Taps into the input node to capture microphone data
-- Records to a PCM buffer in real time
-- Writes to local storage with consistent format (44.1 kHz, 16-bit)
-- Non-destructive — original backing track is never modified
+| File | Role |
+|------|------|
+| `AudioSessionManager.swift` | Configures `.playAndRecord`, listens for interruption/route events |
+| `KaraokeTakeCoordinator.swift` | Owns the concept of a "take" — start/stop/pause/resume for recorder + track together |
+| `RecorderViewModel.swift` | Mic permission, `AVAudioRecorder`, metering, take list |
+| `PlaybackViewModel.swift` | Backing track import/copy, `AVAudioPlayer`, solo take playback |
+| `ContentView.swift` | SwiftUI UI only — no audio coordination logic |
 
-### Playback
+### Audio stack choice
 
-- Loads backing track from a local file
-- Plays through the audio engine's output node
-- Can run simultaneously with recording
-- Survives route changes (headphones ↔ speaker)
+This app uses **file-oriented** APIs (`AVAudioRecorder` + `AVAudioPlayer`), not `AVAudioEngine`. That keeps the code small and readable, but means:
+
+- Backing track and vocal take start within tens of milliseconds of each other — fine for practice, not sample-locked
+- Review playback is solo (take OR track, not mixed on a shared bus)
+
+These are **design constraints**, not bugs. Moving to `AVAudioEngine` would be a separate architectural fork.
 
 ---
 
@@ -74,101 +70,45 @@ If you're building an iOS audio app, this should save you hours of debugging.
 
 ### Requirements
 
-- iOS 13+
-- Xcode 14+
-- Swift 5.5+
+- iOS 16+
+- Xcode 15+
+- Swift 5.9+
+- Real device recommended for mic/audio routing tests
 
-### Build & Run
+### Build and Run
 
 ```bash
 git clone https://github.com/JoshCCorby/ios-karaoke-recorder.git
 cd ios-karaoke-recorder
-open ios-karaoke-recorder.xcodeproj
+open VocalPractice.xcodeproj
 ```
 
-Then select your device or simulator and hit **Run** (⌘R).
+Select your device or simulator and press **Run** (⌘R). Set your development team in the target signing settings before running on a physical device.
+
+An optional Swift Package (`Package.swift`) exists for source browsing; **Xcode is the primary build path** for the iOS app.
 
 ### Add a Backing Track
 
-1. Drag an MP3 or WAV file into Xcode's file navigator
-2. Ensure it's added to the app target
-3. Update the filename in the code (see `AudioEngine.swift`)
-4. Run the app
+1. Tap **Import Track** in the app
+2. Pick an audio file from Files
+3. The file is copied into the app sandbox under `Documents/backing-tracks/`
+4. Tap record to start a take — backing track starts automatically if loaded
 
 ---
 
-## How It Works
+## Permissions
 
-### 1. Configure the Audio Session
-
-```swift
-let session = AVAudioSession.sharedInstance()
-try session.setCategory(.playAndRecord, mode: .default, options: [])
-try session.setActive(true)
-```
-
-This tells iOS: *"I want to play audio AND listen to the mic at the same time."*
-
-### 2. Set Up the Engine
-
-```swift
-let engine = AVAudioEngine()
-let inputNode = engine.inputNode
-let outputNode = engine.outputNode
-let mixer = engine.mainMixerNode
-
-// Wire: input → mixer → output
-// Wire: file player → mixer → output
-```
-
-### 3. Record the Microphone
-
-```swift
-let format = inputNode.outputFormat(forBus: 0)!
-inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-    // Capture mic data here
-}
-```
-
-### 4. Play the Backing Track
-
-```swift
-let audioFile = try AVAudioFile(forReading: url)
-let playerNode = AVAudioPlayerNode()
-engine.attach(playerNode)
-engine.connect(playerNode, to: mixer, format: format)
-playerNode.load(audioFile, audioTime: nil)
-try engine.start()
-playerNode.play()
-```
+`Info.plist` includes `NSMicrophoneUsageDescription`. On first record attempt, the app calls `requestRecordPermission`. If denied, the UI explains how to enable access in Settings.
 
 ---
 
-## Platform Constraints (By Design)
+## Interruption and Route Handling
 
-iOS enforces strict audio sandboxing:
+- **Phone call / Siri** — take pauses; resumes automatically if iOS sets `.shouldResume`
+- **Headphones unplugged mid-take** — take pauses; does **not** auto-resume (avoids speaker blast + mic bleed)
+- User can tap **Resume** or **Stop** after a pause
 
-| What You Want | iOS Says | This Project Says |
-|---|---|---|
-| Record Spotify | ❌ No | Accept it |
-| Tap YouTube audio | ❌ No | Accept it |
-| Mix multiple apps | ❌ No | Accept it |
-| Access mic + other sources | ✅ Yes | Do this instead |
-
-**Bottom line:** This project works *with* iOS, not against it.
-
----
-
-## Interruption Handling
-
-The app gracefully handles:
-
-- **Phone calls** — audio session is interrupted, engine pauses
-- **Siri activation** — similar pause/resume cycle
-- **Headphone insertion** — audio route changes are detected and handled
-- **App backgrounding** — audio engine stops cleanly
-
-See `AudioEngine.swift` for the full interrupt handler.
+See `AudioSessionManager.swift` and `KaraokeTakeCoordinator.swift` for the full flow.
 
 ---
 
@@ -176,13 +116,17 @@ See `AudioEngine.swift` for the full interrupt handler.
 
 ```
 ios-karaoke-recorder/
-├── AudioEngine.swift           # Core AVAudioEngine setup
-├── RecordingManager.swift      # Recording logic
-├── PlaybackManager.swift       # Playback logic
-├── ContentView.swift           # SwiftUI interface
-├── AppDelegate.swift           # App lifecycle
-└── Assets/
-    └── backing-track.wav       # Example backing track
+├── VocalPractice.xcodeproj/    # Primary iOS app target
+├── VocalPracticeApp.swift      # App entry
+├── ContentView.swift           # SwiftUI UI
+├── KaraokeTakeCoordinator.swift
+├── AudioSessionManager.swift
+├── RecorderViewModel.swift
+├── PlaybackViewModel.swift
+├── Info.plist
+├── Assets.xcassets
+├── Package.swift               # Optional SPM executable
+└── web-preview/                # React UI mock
 ```
 
 ---
@@ -190,72 +134,42 @@ ios-karaoke-recorder/
 ## Testing
 
 - Test on a **real device** — simulator audio routing is unreliable
-- Try headphones and speaker mode
-- Trigger a fake call (⌘⇧H in simulator, then call yourself)
-- Record a take, then play it back
+- Deny mic permission → confirm alert and Settings link
+- Import a track from Files → quit app → relaunch → track still plays
+- Start a take → simulate interruption → confirm pause/resume
+- Unplug headphones mid-take → confirm pause, no auto-resume
+- Play a saved take while backing track was playing → only take is heard
 
 ---
 
 ## Known Limitations
 
-- ⚠️ Simulator audio is not reliable — use a real device
-- ⚠️ Only one backing track at a time (by design)
-- ⚠️ No audio effects or processing (out of scope)
-- ⚠️ No cloud sync (out of scope for v1)
+- Simulator audio is not reliable — use a real device
+- Only one backing track at a time (by design)
+- No audio effects or processing (out of scope)
+- No cloud sync (out of scope for v1)
+- Loose A/V sync between track and vocal (by design — see architecture)
 
 ---
 
 ## Tech Stack
 
 - **Language:** Swift
-- **Framework:** AVFoundation (`AVAudioEngine`, `AVAudioSession`, `AVAudioFile`)
+- **Framework:** AVFoundation (`AVAudioSession`, `AVAudioRecorder`, `AVAudioPlayer`)
 - **UI:** SwiftUI
-- **Platform:** iOS 13+
-- **Dependencies:** None (standard library only)
-
----
-
-## Project Status
-
-🚀 **Actively maintained**
-
-Current focus:
-1. Core audio graph correctness
-2. Stable interruption handling
-3. Clear, documented code
-
-Future:
-- UI polish
-- Recording metadata (duration, date, etc.)
-- Recording trimming/playback controls
-
----
-
-## Contributing
-
-Found a bug? Have a suggestion? Issues and PRs are welcome.
-
-Please include:
-- iOS version
-- Device (iPhone 13, simulator, etc.)
-- Steps to reproduce
-- Expected vs. actual behaviour
+- **Platform:** iOS 16+
+- **Dependencies:** None
 
 ---
 
 ## License
 
-MIT License — use this code however you like, for commercial or personal projects.
+Apache-2.0 — see [LICENSE](LICENSE).
 
 ---
 
 ## Useful Resources
 
-- [AVAudioEngine Reference](https://developer.apple.com/documentation/avfoundation/avaudioengine)
-- [Configuring Your App's Audio Session](https://developer.apple.com/documentation/avfoundation/avaudiosession)
-- [Recording Audio](https://developer.apple.com/documentation/avfoundation/avcapture)
-- [Apple's Audio Session Programming Guide](https://developer.apple.com/library/archive/documentation/Audio/Conceptual/AudioSessionProgrammingGuide/)
-
----
-
-**Questions?** Open an issue or check the code — it's written to be readable.
+- [AVAudioSession](https://developer.apple.com/documentation/avfoundation/avaudiosession)
+- [Configuring Your App's Audio Session](https://developer.apple.com/documentation/avfoundation/configuring-your-app-for-media-playback)
+- [Recording Audio](https://developer.apple.com/documentation/avfoundation/audio_playback_recording_and_processing)
