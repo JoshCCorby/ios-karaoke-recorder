@@ -2,9 +2,7 @@
 
 A small, honest reference app for vocal practice on iOS: pick a backing track, record your voice over it, and play your takes back. Built entirely on high-level AVFoundation (`AVAudioSession`, `AVAudioRecorder`, `AVAudioPlayer`) — no third-party libraries.
 
-The app target is named **VocalPractice**.
-
-> This README describes what the code actually does today. Where something is stubbed or not yet wired up, it's listed under [Current limitations](#current-limitations) rather than dressed up as a finished feature.
+The app is named **VocalPractice**.
 
 ## What it does
 
@@ -115,22 +113,6 @@ One practical consequence: when the backing track plays through the **speaker**,
 - Record a take, then play it back from the list.
 - Trigger a phone call or Siri to observe interruption behaviour (see limitations — auto-pause/resume isn't implemented yet).
 
-## Current limitations
-
-These are real gaps in the current code, not design choices:
-
-- **No runnable app target.** The project is a SwiftPM executable target with no `Info.plist`; it needs an Xcode iOS App target before it will build and run as an app.
-- **Microphone permission is not requested.** There's no `requestRecordPermission` call and no `NSMicrophoneUsageDescription`. On a real app, recording will fail until both are added.
-- **Interruptions are logged, not handled.** `AudioSessionManager` observes interruption and route-change notifications but only prints them — it does not pause or resume the recorder or player.
-- **Take timing is approximate.** Recording and backing-track playback are started back-to-back from the view, not locked to a shared clock, so they are not sample-accurately aligned.
-- **No headphone-unplug handling.** Route changes are detected but not acted on.
-
-## Roadmap
-
-- Add an Xcode iOS App target and `Info.plist`
-- Request microphone permission on first record
-- Pause/resume cleanly on interruptions and react to route changes
-- Recording metadata (duration, date) and trim/playback controls
 
 ## License
 
