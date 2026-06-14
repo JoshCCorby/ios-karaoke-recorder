@@ -16,11 +16,12 @@ let package = Package(
             exclude: [
                 "README.md",
                 "LICENSE",
-                "Voice Memos",
                 "web-preview",
                 "Assets.xcassets",
                 "Info.plist",
-                "VocalPractice.xcodeproj"
+                "VocalPractice.xcodeproj",
+                "Tests",
+                ".github"
             ],
             sources: [
                 "VocalPracticeApp.swift",
@@ -28,7 +29,8 @@ let package = Package(
                 "RecorderViewModel.swift",
                 "PlaybackViewModel.swift",
                 "AudioSessionManager.swift",
-                "KaraokeTakeCoordinator.swift"
+                "KaraokeTakeCoordinator.swift",
+                "TimeFormatting.swift"
             ]
         )
     ]

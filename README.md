@@ -1,5 +1,7 @@
 # iOS Karaoke Recorder
 
+[![CI](https://github.com/JoshCCorby/ios-karaoke-recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/JoshCCorby/ios-karaoke-recorder/actions/workflows/ci.yml)
+
 A minimal reference implementation for simultaneous audio playback and recording on iOS using `AVAudioRecorder`, `AVAudioPlayer`, and a shared `AVAudioSession`.
 
 Build vocal practice apps with confidence — explicit about iOS constraints, no fake sync guarantees.
@@ -14,8 +16,9 @@ Build vocal practice apps with confidence — explicit about iOS constraints, no
 - Requests microphone permission with a proper usage string
 - Handles interruptions (calls, Siri) and headphone unplug pauses
 - Copies imported tracks into the app sandbox for reliable playback
+- Restores the last imported backing track on relaunch
 - Stores recordings locally with predictable file naming
-- Plays back recorded takes immediately (solo — backing track stops first)
+- Plays back recorded takes immediately (solo — backing track stops first), with play/stop and swipe-to-delete
 
 ---
 
@@ -123,9 +126,12 @@ ios-karaoke-recorder/
 ├── AudioSessionManager.swift
 ├── RecorderViewModel.swift
 ├── PlaybackViewModel.swift
+├── TimeFormatting.swift        # Pure helpers (unit-tested)
 ├── Info.plist
 ├── Assets.xcassets
-├── Package.swift               # Optional SPM executable
+├── Tests/                      # XCTest unit tests
+├── .github/workflows/ci.yml    # Build + test on PR/push
+├── Package.swift               # Optional SPM source target
 └── web-preview/                # React UI mock
 ```
 
@@ -133,12 +139,31 @@ ios-karaoke-recorder/
 
 ## Testing
 
+### Automated
+
+Pure logic and the interruption/route-change wiring are covered by XCTest unit
+tests in [`Tests/`](Tests). They run on every push/PR via GitHub Actions
+(`.github/workflows/ci.yml`) and locally with:
+
+```bash
+xcodebuild test \
+  -project VocalPractice.xcodeproj \
+  -scheme VocalPractice \
+  -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest'
+```
+
+The coordinator tests inject an `AudioSessionManager(autoConfigure: false)` so
+interruption and route-change handling can be exercised without real hardware.
+
+### Manual (on a real device)
+
 - Test on a **real device** — simulator audio routing is unreliable
 - Deny mic permission → confirm alert and Settings link
-- Import a track from Files → quit app → relaunch → track still plays
+- Import a track from Files → quit app → relaunch → track still loads
 - Start a take → simulate interruption → confirm pause/resume
 - Unplug headphones mid-take → confirm pause, no auto-resume
 - Play a saved take while backing track was playing → only take is heard
+- Tap a playing take again → playback stops; swipe a take → it is deleted
 
 ---
 

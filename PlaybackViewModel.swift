@@ -5,6 +5,7 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isPlayingBackingTrack = false
     @Published var isBackingTrackPaused = false
     @Published var isPlayingRecording = false
+    @Published var currentlyPlayingRecordingURL: URL?
     @Published var duration: TimeInterval = 0
     @Published var currentTime: TimeInterval = 0
     @Published var backingTrackName: String?
@@ -17,10 +18,24 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private var timer: Timer?
 
+    private let defaults: UserDefaults
+    private static let storedFileNameKey = "backingTrack.fileName"
+    private static let storedDisplayNameKey = "backingTrack.displayName"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        super.init()
+        restoreBackingTrack()
+    }
+
+    private var backingTracksDirectory: URL {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documents.appendingPathComponent("backing-tracks", isDirectory: true)
+    }
+
     func importBackingTrack(from sourceURL: URL) throws {
         let fileManager = FileManager.default
-        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let backingTracksDir = documents.appendingPathComponent("backing-tracks", isDirectory: true)
+        let backingTracksDir = backingTracksDirectory
 
         try fileManager.createDirectory(at: backingTracksDir, withIntermediateDirectories: true)
 
@@ -37,9 +52,29 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let previousURL = backingTrackURL
         loadBackingTrack(url: destination, displayName: sourceURL.lastPathComponent)
 
+        // Persist by file name (not absolute path — the sandbox container path
+        // can change between launches) so the track can be restored on relaunch.
+        defaults.set(destination.lastPathComponent, forKey: Self.storedFileNameKey)
+        defaults.set(sourceURL.lastPathComponent, forKey: Self.storedDisplayNameKey)
+
         if let previousURL, previousURL != destination {
             try? fileManager.removeItem(at: previousURL)
         }
+    }
+
+    /// Reloads the most recently imported backing track from the sandbox, if it
+    /// still exists, so the user's track survives an app relaunch.
+    func restoreBackingTrack() {
+        guard let fileName = defaults.string(forKey: Self.storedFileNameKey) else { return }
+        let url = backingTracksDirectory.appendingPathComponent(fileName)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            // The file is gone; clear the stale pointer.
+            defaults.removeObject(forKey: Self.storedFileNameKey)
+            defaults.removeObject(forKey: Self.storedDisplayNameKey)
+            return
+        }
+        let displayName = defaults.string(forKey: Self.storedDisplayNameKey)
+        loadBackingTrack(url: url, displayName: displayName)
     }
 
     private func loadBackingTrack(url: URL, displayName: String? = nil) {
@@ -94,14 +129,25 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         currentTime = 0
     }
 
+    /// Starts the given recording, or stops it if it is already the one playing.
+    func togglePlayRecording(url: URL) {
+        if isPlayingRecording, currentlyPlayingRecordingURL == url {
+            stopRecordingPlayback()
+        } else {
+            playRecording(url: url)
+        }
+    }
+
     func playRecording(url: URL) {
         stopBackingTrack()
+        recordingPlayer?.stop()
 
         do {
             recordingPlayer = try AVAudioPlayer(contentsOf: url)
             recordingPlayer?.delegate = self
             recordingPlayer?.play()
             isPlayingRecording = true
+            currentlyPlayingRecordingURL = url
         } catch {
             lastError = "Error playing recording: \(error.localizedDescription)"
         }
@@ -110,6 +156,7 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func stopRecordingPlayback() {
         recordingPlayer?.stop()
         isPlayingRecording = false
+        currentlyPlayingRecordingURL = nil
     }
 
     private func startTimer() {
@@ -130,6 +177,7 @@ class PlaybackViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         if player == recordingPlayer {
             isPlayingRecording = false
+            currentlyPlayingRecordingURL = nil
         } else if player == backingTrackPlayer {
             isPlayingBackingTrack = false
             isBackingTrackPaused = false

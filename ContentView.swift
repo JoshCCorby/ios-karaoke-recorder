@@ -33,6 +33,7 @@ struct ContentView: View {
                             .frame(width: 50, height: 50)
                             .foregroundColor(.blue)
                     }
+                    .accessibilityLabel(playbackVM.isPlayingBackingTrack ? "Pause backing track" : "Play backing track")
                     .disabled(playbackVM.duration == 0 || coordinator.isTakeActive)
 
                     VStack(alignment: .leading) {
@@ -60,6 +61,14 @@ struct ContentView: View {
                 Text(pauseStatusText)
                     .font(.subheadline)
                     .foregroundColor(.orange)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
+            if !coordinator.sessionManager.isAudioSessionActive {
+                Text("Audio is unavailable right now — finish any phone call or Siri session, then try again.")
+                    .font(.subheadline)
+                    .foregroundColor(.red)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
@@ -128,6 +137,7 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .accessibilityLabel(coordinator.isTakeActive ? "Stop take" : "Start take")
                         .disabled(!coordinator.canStartTake && !coordinator.isTakeActive)
                     }
                 }
@@ -142,17 +152,23 @@ struct ContentView: View {
 
                 List {
                     ForEach(recorderVM.recordings, id: \.self) { url in
+                        let isPlaying = playbackVM.isPlayingRecording
+                            && playbackVM.currentlyPlayingRecordingURL == url
                         HStack {
                             Text(url.lastPathComponent)
                                 .font(.caption)
                             Spacer()
                             Button(action: {
-                                playbackVM.playRecording(url: url)
+                                playbackVM.togglePlayRecording(url: url)
                             }) {
-                                Image(systemName: "play.circle")
-                                    .foregroundColor(.blue)
+                                Image(systemName: isPlaying ? "stop.circle" : "play.circle")
+                                    .foregroundColor(isPlaying ? .red : .blue)
                             }
+                            .accessibilityLabel(isPlaying ? "Stop playback" : "Play take")
                         }
+                    }
+                    .onDelete { offsets in
+                        recorderVM.deleteRecordings(at: offsets)
                     }
                     if recorderVM.recordings.isEmpty {
                         Text("No recordings yet")
@@ -225,8 +241,6 @@ struct ContentView: View {
     }
 
     func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        TimeFormatting.minutesSeconds(time)
     }
 }

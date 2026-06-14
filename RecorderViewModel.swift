@@ -173,6 +173,23 @@ class RecorderViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             }
     }
 
+    @discardableResult
+    func deleteRecording(at url: URL) -> Bool {
+        do {
+            try FileManager.default.removeItem(at: url)
+            recordings.removeAll { $0 == url }
+            return true
+        } catch {
+            lastError = "Could not delete recording: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func deleteRecordings(at offsets: IndexSet) {
+        let urls = offsets.map { recordings[$0] }
+        urls.forEach { deleteRecording(at: $0) }
+    }
+
     private func startTimer() {
         recordingTime = 0
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -190,8 +207,16 @@ class RecorderViewModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private func updateMeters() {
         audioRecorder?.updateMeters()
         let power = audioRecorder?.averagePower(forChannel: 0) ?? -160
-        let normalized = max(0, (power + 60) / 60)
-        audioLevel = normalized
+        audioLevel = RecorderViewModel.normalizedLevel(fromPower: power)
+    }
+
+    /// Maps an `AVAudioRecorder` average power reading (in dBFS, roughly -160...0)
+    /// to a 0...1 level suitable for a meter. Pure for unit testing.
+    static func normalizedLevel(fromPower power: Float) -> Float {
+        let floorDb: Float = -60
+        guard power.isFinite else { return 0 }
+        let clamped = min(0, max(floorDb, power))
+        return (clamped - floorDb) / -floorDb
     }
 
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {

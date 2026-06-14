@@ -14,7 +14,11 @@ class AudioSessionManager: ObservableObject {
     @Published var interruptionPhase: InterruptionPhase = .none
     @Published var routeChangeReason: AVAudioSession.RouteChangeReason?
 
-    private init() {
+    /// - Parameter autoConfigure: when `false`, skips real `AVAudioSession`
+    ///   configuration and notification registration. Used by unit tests to
+    ///   create an isolated instance and drive the published state directly.
+    init(autoConfigure: Bool = true) {
+        guard autoConfigure else { return }
         setupAudioSession()
         setupNotifications()
     }
